@@ -1,24 +1,65 @@
 import streamlit as st
-import pickle
+
+# Set page config first!
+st.set_page_config(page_title="Brain Tumor Classifier", layout="centered")
+
+# Then import other libraries and write the rest of your code.
+import tensorflow as tf
 import numpy as np
+import cv2
+from PIL import Image
 
-with open("best_model.pkl", "rb") as f:
-    model = pickle.load(f)
+@st.cache_resource
+def load_model():
+    return tf.keras.models.load_model("brain_best.keras")
 
-st.title("Diabetes Prediction App")
-st.write("Enter the patient's details below to get a prediction:")
+model = load_model()
 
-pregnancy = st.number_input("Pregnancy 1=yes 0=no", value=1, min_value=0, max_value=1)
-glucose = st.number_input("Glucose", value=120, min_value=0)
-insulin = st.number_input("Insulin", value=80, min_value=0)
-bmi = st.number_input("BMI", value=30.0, min_value=0.0)
-age = st.number_input("Age", value=35, min_value=0)
+# Define class labels (same order as during training)
+class_labels = ["Glioma", "Meningioma", "No Tumor", "Pituitary"]
 
-if st.button("Predict"):
-    input_data = np.array([[pregnancy, glucose, insulin, bmi, age]])
-    prediction = model.predict(input_data)
-    
-    if prediction[0] == 1:
-        st.error("Prediction: The patient is likely diabetic.")
-    else:
-        st.success("Prediction: The patient is not diabetic.")
+# Function to preprocess the image
+def preprocess_image(image):
+    try:
+        image = image.convert("L")  # Convert to grayscale
+        image = image.resize((224, 224))  # Resize
+        img_array = np.array(image) / 255.0  # Normalize
+        img_array = np.expand_dims(img_array, axis=-1)  # Add channel dimension
+        img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
+        return img_array
+    except Exception as e:
+        st.error(f"Error processing image: {e}")
+        return None
+
+st.title("Brain Tumor Classification")
+st.write("Upload an MRI scan to classify the tumor type.")
+
+# File uploader
+uploaded_file = st.file_uploader("Choose an MRI image...", type=["jpg", "png", "jpeg"])
+
+if uploaded_file is not None:
+    # Display the uploaded image
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+
+    # Preprocess the image
+    processed_image = preprocess_image(image)
+
+    if processed_image is not None:
+        with st.spinner("Classifying..."):
+            # Make prediction
+            prediction = model.predict(processed_image)
+
+            # Debugging: Print prediction details
+            st.write("Prediction vector:", prediction)
+            st.write("Prediction shape:", prediction.shape)
+
+            predicted_class_index = np.argmax(prediction)
+            predicted_class = class_labels[predicted_class_index]
+
+        # Format and display confidence scores, etc.
+        confidence_scores = {class_labels[i]: f"{prediction[0][i] * 100:.2f}%" for i in range(len(class_labels))}
+        st.success(f"Predicted Tumor Type: `{predicted_class}`")
+        st.write("Confidence Scores:")
+        for tumor_type, confidence in confidence_scores.items():
+            st.write(f"- **{tumor_type}:** {confidence}")
